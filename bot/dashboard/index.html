@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Auszahlungsbot Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 text-gray-900">
+
+  <nav class="bg-indigo-600 p-4 text-white flex justify-between items-center">
+    <h1 class="text-xl font-bold">Auszahlungsbot Dashboard</h1>
+    <a href="/logout" class="bg-red-500 px-3 py-1 rounded hover:bg-red-700">Logout</a>
+  </nav>
+
+  <main class="p-6 max-w-4xl mx-auto space-y-6">
+    <!-- Template Info -->
+    <div class="bg-white p-6 rounded shadow">
+      <h2 class="text-2xl font-semibold mb-2" id="title">—</h2>
+      <p class="text-gray-600 mb-4" id="datetime">—</p>
+    </div>
+    <div class="bg-white p-6 rounded shadow">
+      <h2 class="text-2xl font-semibold mb-4">Live Embed Vorschau</h2>
+      <pre id="embedPreview" class="bg-gray-900 text-green-400 p-4 rounded text-sm"></pre>
+     </div>
+
+
+    <!-- Teilnehmer Liste -->
+    <div class="bg-white p-6 rounded shadow">
+      <h2 class="text-2xl font-semibold mb-4">Teilnehmer</h2>
+      <ul id="participants" class="space-y-2">
+        <!-- Dynamisch per JS -->
+      </ul>
+    </div>
+
+    <!-- Optionen bearbeiten -->
+    <div class="bg-white p-6 rounded shadow">
+      <h2 class="text-2xl font-semibold mb-4">Optionen bearbeiten</h2>
+      <form id="optionsForm" class="space-y-6">
+        <div>
+          <label class="block font-medium mb-1">Beträge (Amounts)</label>
+          <div id="amountsContainer" class="space-y-2"></div>
+          <button type="button" id="addAmount" class="mt-2 bg-indigo-500 text-white px-3 py-1 rounded hover:bg-indigo-700">+ Betrag hinzufügen</button>
+        </div>
+
+        <div>
+          <label class="block font-medium mb-1">Gründe (Reasons)</label>
+          <div id="reasonsContainer" class="space-y-2"></div>
+          <button type="button" id="addReason" class="mt-2 bg-indigo-500 text-white px-3 py-1 rounded hover:bg-indigo-700">+ Grund hinzufügen</button>
+        </div>
+
+        <button type="submit" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-700">Speichern</button>
+      </form>
+    </div>
+  </main>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+
+    // Template Daten live aktualisieren
+    socket.on("templateUpdate", (data) => {
+      document.getElementById("title").innerText = data.title;
+      document.getElementById("datetime").innerText = data.dateTime;
+
+      const list = document.getElementById("participants");
+      list.innerHTML = "";
+
+      data.participants.forEach((p, i) => {
+        const li = document.createElement("li");
+        li.className = "flex justify-between bg-gray-100 p-2 rounded";
+        li.innerHTML = `
+          <span>${i + 1}. ${p.user || "—"}</span>
+          <span>${p.amount || "—"} (${p.reason || "—"})</span>
+        `;
+        list.appendChild(li);
+      });
+    });
+
+    // Optionen laden + dynamische Inputs
+    async function fetchOptions() {
+      const res = await fetch('/api/options');
+      const data = await res.json();
+
+      const amountsContainer = document.getElementById('amountsContainer');
+      const reasonsContainer = document.getElementById('reasonsContainer');
+
+      amountsContainer.innerHTML = '';
+      reasonsContainer.innerHTML = '';
+
+      data.amounts.forEach(a => addInput(amountsContainer, 'amounts', a));
+      data.reasons.forEach(r => addInput(reasonsContainer, 'reasons', r));
+    }
+
+    async function loadTemplate() {
+  const res = await fetch("/api/template");
+  const data = await res.json();
+  socket.emit("templateUpdate", data);
+}
+
+loadTemplate();
+
+
+    function addInput(container, name, value='') {
+      const div = document.createElement('div');
+      div.className = 'flex items-center space-x-2';
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.name = name;
+      input.value = value;
+      input.className = 'border rounded px-2 py-1 flex-1';
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.innerText = '❌';
+      btn.className = 'px-2 py-1 bg-red-500 text-white rounded hover:bg-red-700';
+      btn.onclick = () => div.remove();
+      div.appendChild(input);
+      div.appendChild(btn);
+      container.appendChild(div);
+    }
+
+    document.getElementById('addAmount').addEventListener('click', () => addInput(document.getElementById('amountsContainer'), 'amounts'));
+    document.getElementById('addReason').addEventListener('click', () => addInput(document.getElementById('reasonsContainer'), 'reasons'));
+
+    document.getElementById('optionsForm').addEventListener('submit', async e => {
+      e.preventDefault();
+      const amounts = Array.from(document.querySelectorAll('input[name="amounts"]')).map(i => i.value).filter(v => v);
+      const reasons = Array.from(document.querySelectorAll('input[name="reasons"]')).map(i => i.value).filter(v => v);
+      const res = await fetch('/api/options', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amounts, reasons })
+      });
+      if(res.ok) alert('✅ Optionen gespeichert!');
+      else alert('❌ Fehler beim Speichern');
+    });
+
+    socket.on("templateUpdate", data => {
+  const preview = data.participants
+    .map(p => `• ${p.user || "—"} – ${p.amount || "—"} (${p.reason || "—"})`)
+    .join("\n");
+
+  document.getElementById("embedPreview").innerText =
+`${data.title}
+${data.dateTime}
+
+${preview}`;
+});
+socket.on("optionsUpdate", data => {
+  const amountsContainer = document.getElementById("amountsContainer");
+  const reasonsContainer = document.getElementById("reasonsContainer");
+
+  amountsContainer.innerHTML = "";
+  reasonsContainer.innerHTML = "";
+
+  data.amounts.forEach(a => addInput(amountsContainer, "amounts", a));
+  data.reasons.forEach(r => addInput(reasonsContainer, "reasons", r));
+});
+
+
+
+    fetchOptions();
+  </script>
+</body>
+</html>
+
+
+
